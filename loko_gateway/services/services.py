@@ -312,6 +312,7 @@ async def info(sid, data):
 async def set_autoscan(value):            #False
     global AUTOSCAN                  #True
     global SCAN_TASK
+    
     global LOOP
     
     AUTOSCAN = value
