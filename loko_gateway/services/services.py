@@ -154,9 +154,17 @@ async def usernames(request):
     return sjson(ret)
 
 
+SCAN_TASK = None
+LOOP = None
+
 @app.listener("before_server_start")
 async def m(app, loop):
-    loop.create_task(scan(ports=list(range(8080, 8090)) + [8888], autoscan=AUTOSCAN))
+    global LOOP
+    global SCAN_TASK
+
+    LOOP = loop
+    if AUTOSCAN:
+        SCAN_TASK = loop.create_task(scan(ports=list(range(8080, 8090)) + [8888], autoscan=AUTOSCAN))
     total_timeout = ClientTimeout(total=SESSION_TIMEOUT)
     app.ctx.aiohttp_session = ClientSession(loop=loop, timeout=total_timeout)
 
@@ -300,19 +308,42 @@ async def info(sid, data):
     print('message received with ', data)
     await sio.emit('info', data)
 
-#creo l'observable di riferimento al quale aggiungere le callback
+
+async def set_autoscan(value):            #False
+    global AUTOSCAN                  #True
+    global SCAN_TASK
+    global LOOP
+    
+    AUTOSCAN = value
+
+    if not value and SCAN_TASK:
+        SCAN_TASK.cancel()
+        SCAN_TASK = None
+    elif value and not SCAN_TASK:
+        LOOP.create_task(scan(ports=list(range(8080, 8090)) + [8888], autoscan=AUTOSCAN))
+
+    # TODO azionii per far partire il task di SCAN
+    # 1. Recuperare il task e riavviarlo/avviarlo in base se è attivo o meno;
+    #
+
+
+# creo l'observable di riferimento al quale aggiungere le callback
 o = Observable()
 CONFIG = {"LIMIT": 200, "GATEWAY": "http://gateway.livetech.site"}
 ul = UploadLimit(CONFIG['LIMIT'])
-#callback legata al cambiamento del valore di "LIMIT" nel config che richiama il metodo set_limit della classe uploadlimit
+# callback legata al cambiamento del valore di "LIMIT" nel config che richiama il metodo set_limit della classe uploadlimit
 o.add_observer("LIMIT", lambda data: ul.set_limit(data['LIMIT']))
+o.add_observer("AUTOSCAN", lambda data: set_autoscan(data['AUTOSCAN']))
+
+
 # o.add_observer("GATEWAY", lambda data: ul.set_limit(data['GATEWAY']))
-#su update del gateway non fa niente in questo caso
-#http://localhost:8080/config
+# su update del gateway non fa niente in questo caso
+# http://localhost:8080/config
 
 @app.get("/config")
 async def get_config(request):
     return sjson(CONFIG)
+
 
 # curl -X PUT "http://localhost:8080/config" -H "Content-type: application/json" -d'{"LIMIT":300}'
 @app.put("/config")
@@ -322,8 +353,9 @@ async def set_config(request):
     print(body)
     CONFIG.update(request.json)
     for key in body.keys():
-        #lancia una notifica per ogni chiave cambiata
-        o.notify(key, CONFIG)
+        # lancia una notifica per ogni chiave cambiata
+        await o.notify(key, CONFIG)
     return sjson("OK")
+
 
 app.run("0.0.0.0", port=PORT, debug=SERVICE_DEBUG, auto_reload=AUTO_RELOAD)

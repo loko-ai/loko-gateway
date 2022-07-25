@@ -7,9 +7,9 @@ class Observable:
     def add_observer(self, event, obs):
         # gli observer sono funzioni che vengono lanciate quando si verifica un evento
         self.observers[event].append(obs)
-    def notify(self, event, data):
+    async def notify(self, event, data):
         for obs in self.observers[event]:
-            obs(data)
+            await obs(data)
 
 class UploadLimit:
     def __init__(self, limit):

@@ -33,7 +33,7 @@ if not os.path.isfile(HOSTS_FILE):
     with open(HOSTS_FILE, 'w') as f:
         json.dump([], f)
 
-ASYNC_REQUEST_TIMEOUT = e.get("ASYNC_REQUEST_TIMEOUT", 60 * 15)
+ASYNC_REQUEST_TIMEOUT = e.get("ASYNC_REQUEST_TIMEOUT", 60 * 15) #NO RESTART
 SESSION_TIMEOUT = e.get("SESSION_TIMEOUT", 60 * 60)
 SOCKET_HOST = e.get("SOKET_HOST")
 SOCKET_PORT = e.get("SOKET_PORT")
