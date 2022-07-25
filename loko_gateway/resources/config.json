@@ -1,0 +1,16 @@
+{
+   "ENV_SANIC_REQUEST_MAX_SIZE": 500000000,
+   "ENV_SANIC_REQUEST_TIMEOUT": 3600,
+   "ENV_SANIC_RESPONSE_TIMEOUT": 3600,
+   "PORT": 8080,
+   "AUTOSCAN": true,
+   "HOSTS": [],
+   "HOSTS_FILE": "/media/alejandro/DATA/workspace/livetech/loko-gateway/loko_gateway/resources/hosts/hosts.json",
+   "ASYNC_REQUEST_TIMEOUT": 900,
+   "SESSION_TIMEOUT": 3600,
+   "SOCKET_HOST": null,
+   "SOCKET_PORT": null,
+   "AUTO_RELOAD": false,
+   "SERVICE_DEBUG": false,
+   "ASYNC_SESSION_TIMEOUT": 300
+}

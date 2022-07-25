@@ -10,13 +10,14 @@ from sanic import Sanic, response
 from sanic.exceptions import NotFound, SanicException
 from sanic.response import json as sjson
 from sanic_cors import CORS
-from sanic_jwt import inject_user
 from sanic_openapi import swagger_blueprint, doc
 
 from loko_gateway.business.scan import check
+from loko_gateway.config import app_config
 from loko_gateway.config.app_config import PORT, AUTO_RELOAD, SERVICE_DEBUG, ASYNC_REQUEST_TIMEOUT, SESSION_TIMEOUT, \
     AUTOSCAN, USERS_DAO, HOSTS, HOSTS_FILE
 from loko_gateway.dao.hosts_dao import HostsDAO
+from loko_gateway.model.listeners import Observable, UploadLimit
 from loko_gateway.utils.async_request import other_hosts
 from loko_gateway.utils.path_utils import to_relative
 
@@ -27,12 +28,6 @@ app = Sanic(appname)
 
 hostsdao = HostsDAO(hosts_path=HOSTS_FILE)
 hostsdao.save(HOSTS)
-
-app.config["API_SCHEMES"] = ["http", "https"]
-app.config["API_SECURITY"] = [{"ApiKeyAuth": []}]
-app.config["API_SECURITY_DEFINITIONS"] = {
-    "ApiKeyAuth": {"type": "apiKey", "in": "header", "name": "Authorization"}
-}
 
 CORS(app, expose_headers=["Range"])
 app.config["API_TITLE"] = appname
@@ -129,48 +124,6 @@ async def scan(ports=(8080,), max_hosts=30, autoscan=True):
         await asyncio.sleep(t)
 
 
-# async def manual_scan():
-#     for i in range(5):
-#         print("Scan", i)
-#         for host in hosts:
-#             print("Host", host)
-#         scans = [check(host, port, mount) for (mount, host, port) in hosts]
-#
-#         resp = defaultdict(list)
-#         for x in await asyncio.gather(*scans):
-#             if x and x.get("type") != appname:
-#                 resp[x['type']].append(x)
-#
-#         for type, x in resp.items():
-#
-#             for service in x:
-#                 print(type, service)
-#                 rules[service['mount']] = service, "{}:{}/{}".format(service['ip'], service['port'], service['path'])
-#
-#         if hasattr(swagger_blueprint, "_spec"):
-#             spec = swagger_blueprint._spec
-#             # spec.paths = {}
-#             for k, v in rules.items():
-#                 bp = v[0]['swagger'].basePath or "/"
-#                 if bp != "/":
-#                     offs = 1
-#                 else:
-#                     offs = len(v[0]['path']) + 1
-#                 for p, cont in v[0]['swagger'].paths.items():
-#                     # print(p, )
-#                     spec.paths[path.join("/", k, to_relative(p[offs:]))] = cont
-#         await  asyncio.sleep(5)
-
-
-# @app.exception(Exception)
-# async def generic_exception(request, exception):
-#     logging.exception(exception)
-#     e = str(exception)
-#     j = dict(error=e)
-#     if isinstance(exception, NotFound):
-#         return response.json(j, status=404, headers={"Access-Control-Allow-Origin": "*"})
-#     return response.json(j, status=500, headers={"Access-Control-Allow-Origin": "*"})
-
 @app.post("/hosts")
 @doc.consumes(doc.JsonBody(fields=dict()), location="body", required=True)
 async def add_hosts(request):
@@ -201,13 +154,11 @@ async def usernames(request):
     return sjson(ret)
 
 
-
 @app.listener("before_server_start")
 async def m(app, loop):
     loop.create_task(scan(ports=list(range(8080, 8090)) + [8888], autoscan=AUTOSCAN))
     total_timeout = ClientTimeout(total=SESSION_TIMEOUT)
     app.ctx.aiohttp_session = ClientSession(loop=loop, timeout=total_timeout)
-
 
 
 @app.listener('before_server_stop')
@@ -232,10 +183,8 @@ async def get_service_by_type(request, type):
 
 @app.route("/<path:path>", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
 @doc.exclude(True)
-@inject_user()
-async def main(request, user, path):
+async def main(request, path):
     headers = dict(request.headers)
-    headers.update(user)
 
     temp = urlparse(path)
     name, *rest = temp.path.split("/")
@@ -351,5 +300,30 @@ async def info(sid, data):
     print('message received with ', data)
     await sio.emit('info', data)
 
+#creo l'observable di riferimento al quale aggiungere le callback
+o = Observable()
+CONFIG = {"LIMIT": 200, "GATEWAY": "http://gateway.livetech.site"}
+ul = UploadLimit(CONFIG['LIMIT'])
+#callback legata al cambiamento del valore di "LIMIT" nel config che richiama il metodo set_limit della classe uploadlimit
+o.add_observer("LIMIT", lambda data: ul.set_limit(data['LIMIT']))
+# o.add_observer("GATEWAY", lambda data: ul.set_limit(data['GATEWAY']))
+#su update del gateway non fa niente in questo caso
+#http://localhost:8080/config
+
+@app.get("/config")
+async def get_config(request):
+    return sjson(CONFIG)
+
+# curl -X PUT "http://localhost:8080/config" -H "Content-type: application/json" -d'{"LIMIT":300}'
+@app.put("/config")
+@doc.consumes(doc.JsonBody(fields=dict(LIMIT=int)), location="body", required=True)
+async def set_config(request):
+    body = request.json
+    print(body)
+    CONFIG.update(request.json)
+    for key in body.keys():
+        #lancia una notifica per ogni chiave cambiata
+        o.notify(key, CONFIG)
+    return sjson("OK")
 
 app.run("0.0.0.0", port=PORT, debug=SERVICE_DEBUG, auto_reload=AUTO_RELOAD)

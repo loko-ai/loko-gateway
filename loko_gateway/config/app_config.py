@@ -1,5 +1,6 @@
 ## request max size 500MB
 import logging
+import sys
 
 from loko_gateway.dao.users_dao import TinyUDAO
 from loko_gateway.model.users import User
@@ -19,7 +20,7 @@ from ds4biz_commons.utils.config_utils import EnvInit
 e = EnvInit()
 PORT = e.get("PORT", 8080)
 AUTOSCAN = e.get("AUTOSCAN", True)
-HOSTS = e.get("HOSTS", [])
+HOSTS = e.get("HOSTS", []) #[["orchestrator", "localhost", 8888],["file-converter", "localhost", 7070],["ds4biz-textract", "localhost", 8081],["predictor", "localhost", 8081],["nlp", "localhost", 9090],["cloudstorage", "localhost", 8083]]
 HOSTS_FILE = get_resource("hosts/hosts.json")
 
 if not AUTOSCAN and not os.path.isfile(HOSTS_FILE) and not HOSTS:
@@ -37,7 +38,6 @@ SESSION_TIMEOUT = e.get("SESSION_TIMEOUT", 60 * 60)
 SOCKET_HOST = e.get("SOKET_HOST")
 SOCKET_PORT = e.get("SOKET_PORT")
 
-TOKEN_EXPIRATION = e.get("TOKEN_EXPIRATION", 7 * 24 * 60 * 60)
 
 AUTO_RELOAD = e.AUTO_RELOAD or False
 SERVICE_DEBUG = e.SERVICE_DEBUG or False
