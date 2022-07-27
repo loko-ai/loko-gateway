@@ -1,8 +1,9 @@
 import asyncio
-import logging
-from urllib.parse import urlunparse
+
 from aiohttp import ClientSession, ClientTimeout
 from ds4biz_commons.utils.dict_utils import ObjectDict
+
+from loko_gateway.utils.path_utils import common_prefix
 
 
 async def check(ip, port, mount=None):

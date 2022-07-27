@@ -41,22 +41,8 @@ class HostsDAO:
         if self.hosts_path:
             self._save()
 
-if __name__ == '__main__':
-    hosts_path = get_resource("hosts/hosts-example.json")
+hosts_path = get_resource("hosts/hosts.json")
+with open(hosts_path, 'w') as f:
+    json.dump([], f)
+hostsdao = HostsDAO(hosts_path)
 
-    with open(hosts_path, 'w') as f:
-        json.dump([], f)
-
-    hostsdao = HostsDAO(hosts_path)
-
-    hosts_dict = hostsdao.all()
-
-    hosts = [["storage","localhost",8081], ["prova2","localhost",8082], ["prova3","localhost",8083]]
-
-    hostsdao.save(hosts)
-
-    print(hostsdao.all())
-
-    # hostsdao.delete('prova3')
-
-    print(hostsdao.all())

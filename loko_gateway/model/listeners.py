@@ -17,3 +17,11 @@ class UploadLimit:
     def set_limit(self, limit):
         print("Refreshing/updating limit")
         self.limit = limit
+
+
+class UploadLimit:
+    def __init__(self, limit):
+        self.limit = limit
+    def set_limit(self, limit):
+        print("Refreshing/updating limit")
+        self.limit = limit
