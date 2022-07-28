@@ -3,6 +3,7 @@ import traceback
 from collections import defaultdict
 from os import path
 from pprint import pprint
+from typing import List
 from urllib.parse import urlparse
 
 import socketio
@@ -15,7 +16,7 @@ from sanic_openapi import swagger_blueprint, doc
 
 from loko_gateway.business.scan import check
 from loko_gateway.config.app_config import PORT, AUTO_RELOAD, SERVICE_DEBUG, ASYNC_REQUEST_TIMEOUT, SESSION_TIMEOUT, \
-     HOSTS, AUTOSCAN
+    HOSTS, AUTOSCAN
 from loko_gateway.dao.hosts_dao import hostsdao
 from loko_gateway.model.listeners import Observable, UploadLimit
 from loko_gateway.utils.async_request import other_hosts
@@ -38,7 +39,7 @@ app.config.REQUEST_MAX_SIZE = 10000000000
 app.blueprint(swagger_blueprint)
 app.config["API_SCHEMES"] = ["http", "https"]
 
-rules = {}
+RULES = {}
 
 """if rules is None:
     with open(RULES_FILE) as rf:
@@ -76,19 +77,19 @@ async def scan(ports=(8080,), max_hosts=30):
                 resp[x['type']].append(x)
 
         if resp != oldscans:
-            rules.clear()
+            RULES.clear()
             oldscans = resp
             for type, x in resp.items():
                 for i, service in enumerate(x):
                     base_url = "{}:{}/{}".format(service['ip'], service['port'], service['path'])
                     try:
-                        info_url = 'http://'+base_url.strip('/')+'/info'
+                        info_url = 'http://' + base_url.strip('/') + '/info'
                         resp = await app.ctx.aiohttp_session.get(url=info_url)
                         name = (await resp.json())['label']
                     except Exception:
-                        name = type if i==0 else type + "_" + str(i + 1)
+                        name = type if i == 0 else type + "_" + str(i + 1)
 
-                    rules[name] = service, base_url
+                    RULES[name] = service, base_url
 
             t = 3
         else:
@@ -100,7 +101,7 @@ async def scan(ports=(8080,), max_hosts=30):
             if not oldpaths:
                 oldpaths = dict(spec.paths)
             spec.paths = dict(oldpaths)
-            for k, v in rules.items():
+            for k, v in RULES.items():
                 bp = v[0]['swagger'].basePath or "/"
                 if bp != "/":
                     offs = 1
@@ -113,13 +114,13 @@ async def scan(ports=(8080,), max_hosts=30):
         print("Next scan in %d seconds " % t)
         await asyncio.sleep(t)
 
+
 async def manual_scan():
     for i in range(5):
         print("Scan", i)
         for host in HOSTS:
             print("Host", host)
         scans = [check(host, port, mount) for (mount, host, port) in HOSTS]
-
 
         resp = defaultdict(list)
         for x in await asyncio.gather(*scans):
@@ -130,11 +131,11 @@ async def manual_scan():
 
             for service in x:
                 print(type, service)
-                rules[service['mount']] = service, "{}:{}/{}".format(service['ip'], service['port'], service['path'])
+                RULES[service['mount']] = service, "{}:{}/{}".format(service['ip'], service['port'], service['path'])
         if hasattr(swagger_blueprint, "_spec"):
             spec = swagger_blueprint._spec
             # spec.paths = {}
-            for k, v in rules.items():
+            for k, v in RULES.items():
                 bp = v[0]['swagger'].basePath or "/"
                 if bp != "/":
                     offs = 1
@@ -146,10 +147,9 @@ async def manual_scan():
         await  asyncio.sleep(5)
 
 
-
 # @app.post("/hosts")
 # @doc.consumes(doc.JsonBody(fields=dict()), location="body", required=True)
-# async def add_hosts(request):
+# async def update_hosts(request):
 #     hostsdao.save(request.json)
 #     return sjson('OK')
 #
@@ -169,6 +169,7 @@ async def manual_scan():
 
 SCAN_TASK = None
 LOOP = None
+
 
 @app.listener("before_server_start")
 async def m(app, loop):
@@ -192,20 +193,20 @@ def term(app, loop):
 
 @app.get("/services")
 async def get_services(request):
-    return sjson(list(rules.keys()))
+    return sjson(list(RULES.keys()))
 
 
 @app.get("/rules")
 async def get_rules(request):
-    return sjson(rules)
+    return sjson(RULES)
 
 
 @app.get("/services/<type>")
 async def get_service_by_type(request, type):
-    return sjson([k for k, x in rules.items() if x[0]['type'] == type])
+    return sjson([k for k, x in RULES.items() if x[0]['type'] == type])
 
 
-@app.route("/gapi/<path:path>", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
+@app.route("/routes/<path:path>", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
 @doc.exclude(True)
 async def main(request, path):
     headers = dict(request.headers)
@@ -213,8 +214,8 @@ async def main(request, path):
     temp = urlparse(path)
     name, *rest = temp.path.split("/")
     params = {k: request.args.get(k) for k in request.args}
-    if name in rules:
-        _, host = rules[name]
+    if name in RULES:
+        _, host = RULES[name]
         host = host.strip("/")
         print("host:", host, "rest:", rest, "temp:", temp.query)
         if temp.query:
@@ -223,7 +224,7 @@ async def main(request, path):
             url = "http://{}/{}".format(host, "/".join(rest))
         print("URL", url)
         resp = await app.ctx.aiohttp_session.request(method=request.method, url=url, data=request.body, headers=headers,
-                                                 params=params, timeout=ASYNC_REQUEST_TIMEOUT)
+                                                     params=params, timeout=ASYNC_REQUEST_TIMEOUT)
         ct = resp.headers.get('content-type')
         kws = ['allow-origin']
         headers = {k: v for k, v in dict(resp.headers).items() if not any([el in k.lower() for el in kws])}
@@ -254,8 +255,6 @@ async def main(request, path):
         return response.raw(await resp.content.read(), content_type=ct, headers=headers, status=resp.status)
     else:
         raise SanicException(status_code=404)
-
-
 
 
 @app.post("/emit")
@@ -323,30 +322,30 @@ async def info(sid, data):
     await sio.emit('info', data)
 
 
-async def set_autoscan(value):            #False
+async def set_autoscan(value):  # False
     global SCAN_TASK
     global LOOP
-    
+
     CONFIG["AUTOSCAN"] = value
 
     if not value and SCAN_TASK:
         SCAN_TASK.cancel()
         SCAN_TASK = None
-    else: # value and not SCAN_TASK:
+    else:  # value and not SCAN_TASK:
         SCAN_TASK = LOOP.create_task(scan(ports=list(range(8080, 8090)) + [8888]))
 
-    # TODO azionii per far partire il task di SCAN
-    # 1. Recuperare il task e riavviarlo/avviarlo in base se è attivo o meno;
-    #
 
-async def add_hosts(hosts):
+async def update_hosts(hosts):
     global SCAN_TASK
+    global RULES
+    RULES.clear()
+
     CONFIG["HOSTS"] = hosts
 
     if not hosts and SCAN_TASK:
         SCAN_TASK.cancel()
         SCAN_TASK = None
-    else: # value and not SCAN_TASK:
+    else:  # value and not SCAN_TASK:
         SCAN_TASK = LOOP.create_task(scan(ports=list(range(8080, 8090)) + [8888]))
 
 
@@ -357,7 +356,7 @@ ul = UploadLimit(CONFIG['ASYNC_REQUEST_TIMEOUT'])
 # callback legata al cambiamento del valore di "LIMIT" nel config che richiama il metodo set_limit della classe uploadlimit
 o.add_observer("ASYNC_REQUEST_TIMEOUT", lambda data: ul.set_limit(data['ASYNC_REQUEST_TIMEOUT']))
 o.add_observer("AUTOSCAN", lambda data: set_autoscan(data['AUTOSCAN']))
-o.add_observer("HOSTS", lambda data: add_hosts(data['HOSTS']))
+o.add_observer("HOSTS", lambda data: update_hosts(data['HOSTS']))
 
 
 # o.add_observer("GATEWAY", lambda data: ul.set_limit(data['GATEWAY']))
@@ -371,7 +370,7 @@ async def get_config(request):
 
 # curl -X PUT "http://localhost:8080/config" -H "Content-type: application/json" -d'{"LIMIT":300}'
 @app.put("/config")
-@doc.consumes(doc.JsonBody(fields=dict(LIMIT=int)), location="body", required=True)
+@doc.consumes(doc.JsonBody(), location="body", required=True)
 async def set_config(request):
     body = request.json
     print(body)
@@ -379,6 +378,29 @@ async def set_config(request):
     for key in body.keys():
         # lancia una notifica per ogni chiave cambiata
         await o.notify(key, CONFIG)
+    return sjson("OK")
+
+
+@app.post("/hosts/register")
+@doc.consumes(doc.JsonBody(fields=dict(HOSTS=List[list])), location="body", required=True)
+async def register_hosts(request):
+    body = request.json
+    hosts = body["HOSTS"]
+    for host in hosts:
+        if host not in CONFIG["HOSTS"]:
+            CONFIG["HOSTS"].append(host)
+    await o.notify("HOSTS", CONFIG)
+    return sjson("OK")
+
+@app.delete("/hosts/deregister/<host>")
+@doc.consumes(doc.String(name="host"), location="path", required=True)
+async def deregister_hosts(request, host):
+    hosts = CONFIG["HOSTS"]
+    for x in hosts:
+        if host in x:
+            CONFIG["HOSTS"].remove(x)
+    print(CONFIG)
+    await o.notify("HOSTS", CONFIG)
     return sjson("OK")
 
 
