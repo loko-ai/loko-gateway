@@ -338,6 +338,7 @@ async def set_autoscan(value):  # False
 async def update_hosts(hosts):
     global SCAN_TASK
     global RULES
+    print(RULES)
     RULES.clear()
 
     CONFIG["HOSTS"] = hosts
@@ -382,24 +383,27 @@ async def set_config(request):
 
 
 @app.post("/hosts/register")
-@doc.consumes(doc.JsonBody(fields=dict(HOSTS=List[list])), location="body", required=True)
+@doc.consumes(doc.JsonBody(fields=dict(host=list)), location="body", required=True)
 async def register_hosts(request):
-    body = request.json
-    hosts = body["HOSTS"]
-    for host in hosts:
-        if host not in CONFIG["HOSTS"]:
-            CONFIG["HOSTS"].append(host)
-    await o.notify("HOSTS", CONFIG)
-    return sjson("OK")
+    hosts = CONFIG["HOSTS"]
+    new_host = request.json
+    if new_host:
+        new_host = new_host["host"]
+        for x in hosts:
+            if new_host[0] in x:
+                CONFIG["HOSTS"].remove(x)
+        CONFIG["HOSTS"].append(new_host)
+        await o.notify("HOSTS", CONFIG)
+        return sjson("OK")
+    return sjson("No host detected")
 
 @app.delete("/hosts/deregister/<host>")
-@doc.consumes(doc.String(name="host"), location="path", required=True)
-async def deregister_hosts(request, host):
+@doc.consumes(doc.String(name="hostname"), location="path", required=True)
+async def deregister_hosts(request, hostname):
     hosts = CONFIG["HOSTS"]
     for x in hosts:
-        if host in x:
+        if hostname in x:
             CONFIG["HOSTS"].remove(x)
-    print(CONFIG)
     await o.notify("HOSTS", CONFIG)
     return sjson("OK")
 
