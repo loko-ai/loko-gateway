@@ -1,6 +1,4 @@
-import asyncio
 import traceback
-from collections import defaultdict
 from os import path
 from urllib.parse import urlparse
 
@@ -12,11 +10,8 @@ from sanic.response import json as sjson
 from sanic_cors import CORS
 from sanic_openapi import swagger_blueprint, doc
 
-from loko_gateway.business.scan import check
 from loko_gateway.config.app_config import PORT, AUTO_RELOAD, SERVICE_DEBUG, ASYNC_REQUEST_TIMEOUT, SESSION_TIMEOUT, \
-    HOSTS, RULES_DAO
-from loko_gateway.model.listeners import Observable, UploadLimit
-from loko_gateway.utils.async_request import other_hosts
+    RULES_DAO, RULES
 from loko_gateway.utils.config_utils import CONFIG
 from loko_gateway.utils.path_utils import to_relative
 
@@ -99,20 +94,6 @@ def update_swagger():
 #             t += 5
 #             t = min(60, t)
 #
-#         if hasattr(swagger_blueprint, "_spec"):
-#             spec = swagger_blueprint._spec
-#             if not oldpaths:
-#                 oldpaths = dict(spec.paths)
-#             spec.paths = dict(oldpaths)
-#             for k, v in RULES.items():
-#                 bp = v[0]['swagger'].basePath or "/"
-#                 if bp != "/":
-#                     offs = 1
-#                 else:
-#                     offs = len(v[0]['path']) + 1
-#                 for p, cont in v[0]['swagger'].paths.items():
-#                     # print(p, )
-#                     spec.paths[path.join("/", k, to_relative(p[offs:]))] = cont
 #
 #         print("Next scan in %d seconds " % t)
 #         await asyncio.sleep(t)
@@ -176,10 +157,14 @@ LOOP = None
 
 @app.listener("before_server_start")
 async def m(app, loop):
-    # global LOOP
-    # global SCAN_TASK
-    #
-    # LOOP = loop
+    global LOOP
+    global SCAN_TASK
+
+    LOOP = loop
+
+    for r in RULES:
+        await RULES_DAO.mount(r["name"], r["host"], r["port"])
+
     # if CONFIG["AUTOSCAN"]:
     #     SCAN_TASK = loop.create_task(scan(ports=list(range(8080, 8090)) + [8888]))
     # else:
@@ -386,7 +371,7 @@ async def get_rules(request):
 
 @app.post("/rules")
 @doc.consumes(doc.JsonBody(fields=dict(name=str, host=str, port=int, type=str)), location="body", required=True)
-async def register_hosts(request):
+async def register_rule(request):
     print(request.json)
     await RULES_DAO.mount(**request.json)
     update_swagger()
@@ -397,7 +382,7 @@ async def register_hosts(request):
 
 @app.delete("/rules/<name>")
 @doc.consumes(doc.String(name="name"), location="path", required=True)
-async def deregister_hosts(request, name):
+async def deregister_rule(request, name):
     RULES_DAO.delete(name)
     # await o.notify("HOSTS", CONFIG)
     return sjson("OK")

@@ -17,10 +17,10 @@ SESSION_TIMEOUT = e.get("SESSION_TIMEOUT", 60 * 60)
 
 PORT = e.get("PORT", 8080)
 AUTOSCAN = e.get("AUTOSCAN", True)
-HOSTS = e.get("HOSTS", [])#,["file-converter", "localhost", 7070],["ds4biz-textract", "localhost", 8081],["predictor", "localhost", 8081],["nlp", "localhost", 9090],["cloudstorage", "localhost", 8083]]
+RULES = e.RULES or []#,["file-converter", "localhost", 7070],["ds4biz-textract", "localhost", 8081],["predictor", "localhost", 8081],["nlp", "localhost", 9090],["cloudstorage", "localhost", 8083]]
 AUTO_RELOAD = e.AUTO_RELOAD or False
 SERVICE_DEBUG = e.SERVICE_DEBUG or False
 
-RULES_DAO = RuleDAO()
 
+RULES_DAO = RuleDAO()
 

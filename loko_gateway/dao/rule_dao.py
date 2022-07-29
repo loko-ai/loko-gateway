@@ -12,12 +12,9 @@ class RuleDAO:
     def __init__(self, rules=None):
         self.rules = rules or {}
 
-    async def mount(self, name, host, port, type):
-        try:
-            self.rules[name] = await self.__create_rule(name, host, port)
-        except Exception as inst:
-            print(inst)
-            self.rules[name] = Rule(name, host, port, type)
+    async def mount(self, name, host, port):
+        self.rules[name] = await self.__create_rule(name, host, port)
+
 
     def get(self, name: str) -> Rule:
         return self.rules.get(name)
