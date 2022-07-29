@@ -2,8 +2,6 @@ import asyncio
 import traceback
 from collections import defaultdict
 from os import path
-from pprint import pprint
-from typing import List
 from urllib.parse import urlparse
 
 import socketio
@@ -16,8 +14,7 @@ from sanic_openapi import swagger_blueprint, doc
 
 from loko_gateway.business.scan import check
 from loko_gateway.config.app_config import PORT, AUTO_RELOAD, SERVICE_DEBUG, ASYNC_REQUEST_TIMEOUT, SESSION_TIMEOUT, \
-    HOSTS, AUTOSCAN
-from loko_gateway.dao.hosts_dao import hostsdao
+    HOSTS, RULES_DAO
 from loko_gateway.model.listeners import Observable, UploadLimit
 from loko_gateway.utils.async_request import other_hosts
 from loko_gateway.utils.config_utils import CONFIG
@@ -39,12 +36,6 @@ app.config.REQUEST_MAX_SIZE = 10000000000
 app.blueprint(swagger_blueprint)
 app.config["API_SCHEMES"] = ["http", "https"]
 
-RULES = {}
-
-"""if rules is None:
-    with open(RULES_FILE) as rf:
-        rules = json.load(rf)"""
-
 
 async def islice(it, m):
     count = 0
@@ -58,93 +49,105 @@ async def islice(it, m):
 
 oldpaths = None
 
+def update_swagger():
+    if hasattr(swagger_blueprint, "_spec"):
+        spec = swagger_blueprint._spec
+        for rule in RULES_DAO.all():
+            md = rule.metadata
+            bp = md["swagger"].basePath or "/"
+            if bp != "/":
+                offs = 1
+            else:
+                offs = len(['path']) + 1
+            for p, cont in md['swagger'].paths.items():
+                spec.paths[path.join("/", rule.name, to_relative(p[offs:]))] = cont
 
-async def scan(ports=(8080,), max_hosts=30):
-    global oldpaths
-    oldscans = defaultdict(list)
-    t = 3
+# async def scan(ports=(8080,), max_hosts=30):
+#     global oldpaths
+#     oldscans = defaultdict(list)
+#     t = 3
+#
+#     l = "127.0.0.1"
+#
+#     while True:
+#
+#         scans = [check(l, port) for port in ports if port != PORT]
+#
+#         scans.extend([check(ip, 8080) async for ip in islice(other_hosts(), max_hosts)])
+#         resp = defaultdict(list)
+#         for x in await asyncio.gather(*scans):
+#             if x and x.get("type") != appname:
+#                 resp[x['type']].append(x)
+#
+#         if resp != oldscans:
+#             # RULES.clear()
+#             oldscans = resp
+#             for type, x in resp.items():
+#                 for i, service in enumerate(x):
+#                     base_url = "{}:{}/{}".format(service['ip'], service['port'], service['path'])
+#                     try:
+#                         info_url = 'http://' + base_url.strip('/') + '/info'
+#                         resp = await app.ctx.aiohttp_session.get(url=info_url)
+#                         name = (await resp.json())['label']
+#                     except Exception:
+#                         name = type if i == 0 else type + "_" + str(i + 1)
+#
+#                     RULES[name] = service, base_url
+#
+#             t = 3
+#         else:
+#             t += 5
+#             t = min(60, t)
+#
+#         if hasattr(swagger_blueprint, "_spec"):
+#             spec = swagger_blueprint._spec
+#             if not oldpaths:
+#                 oldpaths = dict(spec.paths)
+#             spec.paths = dict(oldpaths)
+#             for k, v in RULES.items():
+#                 bp = v[0]['swagger'].basePath or "/"
+#                 if bp != "/":
+#                     offs = 1
+#                 else:
+#                     offs = len(v[0]['path']) + 1
+#                 for p, cont in v[0]['swagger'].paths.items():
+#                     # print(p, )
+#                     spec.paths[path.join("/", k, to_relative(p[offs:]))] = cont
+#
+#         print("Next scan in %d seconds " % t)
+#         await asyncio.sleep(t)
 
-    l = "127.0.0.1"
 
-    while True:
-
-        scans = [check(l, port) for port in ports if port != PORT]
-
-        scans.extend([check(ip, 8080) async for ip in islice(other_hosts(), max_hosts)])
-        resp = defaultdict(list)
-        for x in await asyncio.gather(*scans):
-            if x and x.get("type") != appname:
-                resp[x['type']].append(x)
-
-        if resp != oldscans:
-            RULES.clear()
-            oldscans = resp
-            for type, x in resp.items():
-                for i, service in enumerate(x):
-                    base_url = "{}:{}/{}".format(service['ip'], service['port'], service['path'])
-                    try:
-                        info_url = 'http://' + base_url.strip('/') + '/info'
-                        resp = await app.ctx.aiohttp_session.get(url=info_url)
-                        name = (await resp.json())['label']
-                    except Exception:
-                        name = type if i == 0 else type + "_" + str(i + 1)
-
-                    RULES[name] = service, base_url
-
-            t = 3
-        else:
-            t += 5
-            t = min(60, t)
-
-        if hasattr(swagger_blueprint, "_spec"):
-            spec = swagger_blueprint._spec
-            if not oldpaths:
-                oldpaths = dict(spec.paths)
-            spec.paths = dict(oldpaths)
-            for k, v in RULES.items():
-                bp = v[0]['swagger'].basePath or "/"
-                if bp != "/":
-                    offs = 1
-                else:
-                    offs = len(v[0]['path']) + 1
-                for p, cont in v[0]['swagger'].paths.items():
-                    # print(p, )
-                    spec.paths[path.join("/", k, to_relative(p[offs:]))] = cont
-
-        print("Next scan in %d seconds " % t)
-        await asyncio.sleep(t)
-
-
-async def manual_scan():
-    for i in range(5):
-        print("Scan", i)
-        for host in HOSTS:
-            print("Host", host)
-        scans = [check(host, port, mount) for (mount, host, port) in HOSTS]
-
-        resp = defaultdict(list)
-        for x in await asyncio.gather(*scans):
-            if x and x.get("type") != appname:
-                resp[x['type']].append(x)
-
-        for type, x in resp.items():
-
-            for service in x:
-                print(type, service)
-                RULES[service['mount']] = service, "{}:{}/{}".format(service['ip'], service['port'], service['path'])
-        if hasattr(swagger_blueprint, "_spec"):
-            spec = swagger_blueprint._spec
-            # spec.paths = {}
-            for k, v in RULES.items():
-                bp = v[0]['swagger'].basePath or "/"
-                if bp != "/":
-                    offs = 1
-                else:
-                    offs = len(v[0]['path']) + 1
-                for p, cont in v[0]['swagger'].paths.items():
-                    # print(p, )
-                    spec.paths[path.join("/", k, to_relative(p[offs:]))] = cont
-        await  asyncio.sleep(5)
+# async def manual_scan():
+#     for i in range(5):
+#         print("Scan", i)
+#         for host in HOSTS:
+#             print("Host", host)
+#         scans = [check(host, port, mount) for (mount, host, port) in HOSTS]
+#
+#         resp = defaultdict(list)
+#         for x in await asyncio.gather(*scans):
+#             if x and x.get("type") != appname:
+#                 resp[x['type']].append(x)
+#
+#         for type, x in resp.items():
+#
+#             for service in x:
+#                 print(type, service)
+#                 RULES[service['mount']] = service, "{}:{}/{}".format(service['ip'], service['port'], service['path'])
+#         if hasattr(swagger_blueprint, "_spec"):
+#             spec = swagger_blueprint._spec
+#             # spec.paths = {}
+#             for k, v in RULES.items():
+#                 bp = v[0]['swagger'].basePath or "/"
+#                 if bp != "/":
+#                     offs = 1
+#                 else:
+#                     offs = len(v[0]['path']) + 1
+#                 for p, cont in v[0]['swagger'].paths.items():
+#                     # print(p, )
+#                     spec.paths[path.join("/", k, to_relative(p[offs:]))] = cont
+#         await  asyncio.sleep(5)
 
 
 # @app.post("/hosts")
@@ -173,14 +176,14 @@ LOOP = None
 
 @app.listener("before_server_start")
 async def m(app, loop):
-    global LOOP
-    global SCAN_TASK
-
-    LOOP = loop
-    if CONFIG["AUTOSCAN"]:
-        SCAN_TASK = loop.create_task(scan(ports=list(range(8080, 8090)) + [8888]))
-    else:
-        SCAN_TASK = loop.create_task(manual_scan())
+    # global LOOP
+    # global SCAN_TASK
+    #
+    # LOOP = loop
+    # if CONFIG["AUTOSCAN"]:
+    #     SCAN_TASK = loop.create_task(scan(ports=list(range(8080, 8090)) + [8888]))
+    # else:
+    #     SCAN_TASK = loop.create_task(manual_scan())
 
     total_timeout = ClientTimeout(total=SESSION_TIMEOUT)
     app.ctx.aiohttp_session = ClientSession(loop=loop, timeout=total_timeout)
@@ -196,32 +199,26 @@ async def get_services(request):
     return sjson(list(RULES.keys()))
 
 
-@app.get("/rules")
-async def get_rules(request):
-    return sjson(RULES)
-
-
 @app.get("/services/<type>")
 async def get_service_by_type(request, type):
-    return sjson([k for k, x in RULES.items() if x[0]['type'] == type])
+    return sjson([x for x in RULES_DAO.all() if x.type == type])
 
 
 @app.route("/routes/<path:path>", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
 @doc.exclude(True)
 async def main(request, path):
     headers = dict(request.headers)
-
     temp = urlparse(path)
     name, *rest = temp.path.split("/")
     params = {k: request.args.get(k) for k in request.args}
-    if name in RULES:
-        _, host = RULES[name]
-        host = host.strip("/")
-        print("host:", host, "rest:", rest, "temp:", temp.query)
+
+    rule = RULES_DAO.get(name)
+    if rule:
+        print("host:", rule.host, "rest:", rest, "temp:", temp.query)
         if temp.query:
-            url = "http://{}/{}?{}".format(host, "/".join(rest), temp.query)
+            url = f"http://{rule.host}:{rule.port}{rule.base_path}/{'/'.join(rest)}?{temp.query}"
         else:
-            url = "http://{}/{}".format(host, "/".join(rest))
+            url = f"http://{rule.host}:{rule.port}{rule.base_path}/{'/'.join(rest)}"
         print("URL", url)
         resp = await app.ctx.aiohttp_session.request(method=request.method, url=url, data=request.body, headers=headers,
                                                      params=params, timeout=ASYNC_REQUEST_TIMEOUT)
@@ -350,14 +347,14 @@ async def update_hosts(hosts):
         SCAN_TASK = LOOP.create_task(scan(ports=list(range(8080, 8090)) + [8888]))
 
 
-# creo l'observable di riferimento al quale aggiungere le callback
-o = Observable()
-# CONFIG = {"LIMIT": 200, "GATEWAY": "http://gateway.livetech.site"}
-ul = UploadLimit(CONFIG['ASYNC_REQUEST_TIMEOUT'])
-# callback legata al cambiamento del valore di "LIMIT" nel config che richiama il metodo set_limit della classe uploadlimit
-o.add_observer("ASYNC_REQUEST_TIMEOUT", lambda data: ul.set_limit(data['ASYNC_REQUEST_TIMEOUT']))
-o.add_observer("AUTOSCAN", lambda data: set_autoscan(data['AUTOSCAN']))
-o.add_observer("HOSTS", lambda data: update_hosts(data['HOSTS']))
+# # creo l'observable di riferimento al quale aggiungere le callback
+# o = Observable()
+# # CONFIG = {"LIMIT": 200, "GATEWAY": "http://gateway.livetech.site"}
+# ul = UploadLimit(CONFIG['ASYNC_REQUEST_TIMEOUT'])
+# # callback legata al cambiamento del valore di "LIMIT" nel config che richiama il metodo set_limit della classe uploadlimit
+# o.add_observer("ASYNC_REQUEST_TIMEOUT", lambda data: ul.set_limit(data['ASYNC_REQUEST_TIMEOUT']))
+# o.add_observer("AUTOSCAN", lambda data: set_autoscan(data['AUTOSCAN']))
+# o.add_observer("HOSTS", lambda data: update_hosts(data['HOSTS']))
 
 
 # o.add_observer("GATEWAY", lambda data: ul.set_limit(data['GATEWAY']))
@@ -382,29 +379,27 @@ async def set_config(request):
     return sjson("OK")
 
 
-@app.post("/hosts/register")
-@doc.consumes(doc.JsonBody(fields=dict(host=list)), location="body", required=True)
-async def register_hosts(request):
-    hosts = CONFIG["HOSTS"]
-    new_host = request.json
-    if new_host:
-        new_host = new_host["host"]
-        for x in hosts:
-            if new_host[0] in x:
-                CONFIG["HOSTS"].remove(x)
-        CONFIG["HOSTS"].append(new_host)
-        await o.notify("HOSTS", CONFIG)
-        return sjson("OK")
-    return sjson("No host detected")
+@app.get("/rules")
+async def get_rules(request):
+    return sjson([x.__dict__ for x in RULES_DAO.all()])
 
-@app.delete("/hosts/deregister/<host>")
-@doc.consumes(doc.String(name="hostname"), location="path", required=True)
-async def deregister_hosts(request, hostname):
-    hosts = CONFIG["HOSTS"]
-    for x in hosts:
-        if hostname in x:
-            CONFIG["HOSTS"].remove(x)
-    await o.notify("HOSTS", CONFIG)
+
+@app.post("/rules")
+@doc.consumes(doc.JsonBody(fields=dict(name=str, host=str, port=int, type=str)), location="body", required=True)
+async def register_hosts(request):
+    print(request.json)
+    await RULES_DAO.mount(**request.json)
+    update_swagger()
+    # await o.notify("HOSTS", CONFIG)
+    # return sjson("OK")
+    return sjson("OK")
+
+
+@app.delete("/rules/<name>")
+@doc.consumes(doc.String(name="name"), location="path", required=True)
+async def deregister_hosts(request, name):
+    RULES_DAO.delete(name)
+    # await o.notify("HOSTS", CONFIG)
     return sjson("OK")
 
 

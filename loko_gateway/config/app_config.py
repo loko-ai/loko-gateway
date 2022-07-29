@@ -1,5 +1,7 @@
 from ds4biz_commons.utils.config_utils import EnvInit
 
+from loko_gateway.dao.rule_dao import RuleDAO
+
 e = EnvInit()
 
 ## request max size 500MB
@@ -18,5 +20,7 @@ AUTOSCAN = e.get("AUTOSCAN", True)
 HOSTS = e.get("HOSTS", [])#,["file-converter", "localhost", 7070],["ds4biz-textract", "localhost", 8081],["predictor", "localhost", 8081],["nlp", "localhost", 9090],["cloudstorage", "localhost", 8083]]
 AUTO_RELOAD = e.AUTO_RELOAD or False
 SERVICE_DEBUG = e.SERVICE_DEBUG or False
+
+RULES_DAO = RuleDAO()
 
 
