@@ -44,6 +44,7 @@ async def islice(it, m):
 
 oldpaths = None
 
+
 def update_swagger():
     if hasattr(swagger_blueprint, "_spec"):
         spec = swagger_blueprint._spec
@@ -56,6 +57,7 @@ def update_swagger():
                 offs = len(['path']) + 1
             for p, cont in md['swagger'].paths.items():
                 spec.paths[path.join("/", rule.name, to_relative(p[offs:]))] = cont
+
 
 # async def scan(ports=(8080,), max_hosts=30):
 #     global oldpaths
@@ -370,10 +372,16 @@ async def get_rules(request):
 
 
 @app.post("/rules")
-@doc.consumes(doc.JsonBody(fields=dict(name=str, host=str, port=int, type=str)), location="body", required=True)
+@doc.consumes(doc.JsonBody(fields=dict(name=str, host=str, port=int, scan=bool, type=str)), location="body",
+              required=True)
 async def register_rule(request):
-    print(request.json)
-    await RULES_DAO.mount(**request.json)
+    print(request.json, type(request.json))
+    if request.json['scan']:
+        print(request.json['scan'])
+        await RULES_DAO.mount(**request.json)
+    else:
+        print("Non scannare")
+        RULES_DAO.add_rule(**request.json)
     update_swagger()
     # await o.notify("HOSTS", CONFIG)
     # return sjson("OK")

@@ -12,9 +12,11 @@ class RuleDAO:
     def __init__(self, rules=None):
         self.rules = rules or {}
 
-    async def mount(self, name, host, port):
+    async def mount(self, name, host, port, type, **kwargs):
         self.rules[name] = await self.__create_rule(name, host, port)
 
+    def add_rule(self, name, host, port, type, **kwargs):
+        self.rules[name] = Rule(name, host, port, type, base_path="")
 
     def get(self, name: str) -> Rule:
         return self.rules.get(name)
@@ -48,6 +50,7 @@ class RuleDAO:
             fpath = "/" + fpath
             return Rule(name=name, host=ip, port=port, type=resp.info.title, base_path=fpath,
                         swagger=resp)
+
 
 if __name__ == '__main__':
     dao = RuleDAO()

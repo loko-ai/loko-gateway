@@ -1,4 +1,4 @@
-FROM python:3.7.12-slim-bullseye
+FROM python:3.10-slim
 ARG user
 ARG password
 ADD requirements.lock /
@@ -6,7 +6,7 @@ RUN pip install --user --upgrade --extra-index-url https://$user:$password@distr
 
 # FROM python:3.7-slim
 # COPY --from=builder /root/.local /root/.local
-ADD . /ds4biz-agateway
-ENV PYTHONPATH=$PYTHONPATH:/ds4biz-agateway
-WORKDIR /ds4biz-agateway/ds4biz_agateway/services
+ADD . /loko-gateway
+ENV PYTHONPATH=$PYTHONPATH:/loko-gateway
+WORKDIR /loko-gateway/loko_gateway/services
 CMD python services.py
