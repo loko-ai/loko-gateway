@@ -1,12 +1,13 @@
+import asyncio
 import traceback
 from os import path
 from urllib.parse import urlparse
 
 import socketio
 from aiohttp import ClientSession, ClientTimeout
-from sanic import Sanic, response
+from sanic import Sanic
 from sanic.exceptions import NotFound, SanicException
-from sanic.response import json as sjson
+from sanic.response import json as sjson, raw
 from sanic_cors import CORS
 from sanic_openapi import swagger_blueprint, doc
 
@@ -157,23 +158,38 @@ SCAN_TASK = None
 LOOP = None
 
 
-@app.listener("before_server_start")
+async def scan():
+    temp = list(RULES)
+    while temp:
+        print("Giro", temp)
+        try:
+            for r in list(temp):
+                try:
+                    print("Aggancio", r)
+                    await RULES_DAO.mount(r["name"], r["host"], r["port"], r["type"])
+                    temp.remove(r)
+                except Exception as inst:
+                    print(r, inst)
+            print("Sleeping")
+            await asyncio.sleep(3)
+            print("Ho dormito")
+        except Exception as e2:
+            print("Global", e2)
+
+
+@app.listener("after_server_start")
 async def m(app, loop):
     global LOOP
     global SCAN_TASK
-
+    total_timeout = ClientTimeout(total=SESSION_TIMEOUT)
+    app.ctx.aiohttp_session = ClientSession(loop=loop, timeout=total_timeout)
     LOOP = loop
-
-    for r in RULES:
-        await RULES_DAO.mount(r["name"], r["host"], r["port"])
+    loop.create_task(scan())
 
     # if CONFIG["AUTOSCAN"]:
     #     SCAN_TASK = loop.create_task(scan(ports=list(range(8080, 8090)) + [8888]))
     # else:
     #     SCAN_TASK = loop.create_task(manual_scan())
-
-    total_timeout = ClientTimeout(total=SESSION_TIMEOUT)
-    app.ctx.aiohttp_session = ClientSession(loop=loop, timeout=total_timeout)
 
 
 @app.listener('before_server_stop')
@@ -188,7 +204,7 @@ async def get_services(request):
 
 @app.get("/services/<type>")
 async def get_service_by_type(request, type):
-    return sjson([x for x in RULES_DAO.all() if x.type == type])
+    return sjson([x.name for x in RULES_DAO.all() if x.type == type])
 
 
 @app.route("/routes/<path:path>", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
@@ -201,42 +217,34 @@ async def main(request, path):
 
     rule = RULES_DAO.get(name)
     if rule:
-        print("host:", rule.host, "rest:", rest, "temp:", temp.query)
         if temp.query:
             url = f"http://{rule.host}:{rule.port}{rule.base_path}/{'/'.join(rest)}?{temp.query}"
         else:
             url = f"http://{rule.host}:{rule.port}{rule.base_path}/{'/'.join(rest)}"
-        print("URL", url)
         resp = await app.ctx.aiohttp_session.request(method=request.method, url=url, data=request.body, headers=headers,
                                                      params=params, timeout=ASYNC_REQUEST_TIMEOUT)
         ct = resp.headers.get('content-type')
         kws = ['allow-origin']
         headers = {k: v for k, v in dict(resp.headers).items() if not any([el in k.lower() for el in kws])}
-        print(resp.headers)
-        print(headers)
-        response.headers = headers
 
         if resp.headers.get('Transfer-Encoding') == 'chunked':
+            rr = await request.respond(headers=headers)
 
-            def streaming_fn(resp):
-                async def ret(response):
+            buffer = b""
+            async for data, end_of_http_chunk in resp.content.iter_chunks():
+                buffer += data
+                if end_of_http_chunk:
+                    await rr.send(buffer)
+                    print('line::', end_of_http_chunk, buffer)
                     buffer = b""
-                    async for data, end_of_http_chunk in resp.content.iter_chunks():
-                        buffer += data
-                        if end_of_http_chunk:
-                            await response.write(buffer)
-                            print('line::', end_of_http_chunk, buffer)
-                            buffer = b""
-                    resp.close()
+            resp.close()
 
-                return ret
-
-            return response.stream(streaming_fn(resp))
         # if ct == 'application/json' and not "Range" in headers:
         #     return sjson(await resp.json(), headers = headers)
         # if ct == 'plain/text':
         #     return sjson(await resp.text(), headers = headers)
-        return response.raw(await resp.content.read(), content_type=ct, headers=headers, status=resp.status)
+        else:
+            return raw(await resp.content.read(), content_type=ct, headers=headers, status=resp.status)
     else:
         raise SanicException(status_code=404)
 
@@ -260,7 +268,7 @@ async def send(request) -> str:
 async def manage_exception(request, exception):
     if isinstance(exception, NotFound):
         return sjson(str(exception), status=404)
-    print(traceback.format_exc())
+    # print(traceback.format_exc())
     return sjson(str(exception), status=500)
 
 
@@ -272,37 +280,41 @@ async def messages(sid, data):
 
 @sio.event
 async def message(sid, data):
-    print('message received with ', data)
     await sio.emit('message', data)
 
 
 @sio.event
 async def project(sid, data):
-    print('message received with ', data)
     await sio.emit('project', data)
 
 
 @sio.event
 async def system(sid, data):
-    print('message received with ', data)
     await sio.emit('system', data)
 
 
 @sio.event
 async def flows(sid, data):
-    print('message received with ', data)
     await sio.emit('flows', data)
 
 
 @sio.event
 async def animation(sid, data):
-    print('message received with ', data)
     await sio.emit('animation', data)
 
 
 @sio.event
+async def logs(sid, data):
+    await sio.emit('logs', data)
+
+
+@sio.event
+async def events(sid, data):
+    await sio.emit('events', data)
+
+
+@sio.event
 async def info(sid, data):
-    print('message received with ', data)
     await sio.emit('info', data)
 
 
@@ -375,12 +387,10 @@ async def get_rules(request):
 @doc.consumes(doc.JsonBody(fields=dict(name=str, host=str, port=int, scan=bool, type=str)), location="body",
               required=True)
 async def register_rule(request):
-    print(request.json, type(request.json))
     if request.json['scan']:
         print(request.json['scan'])
         await RULES_DAO.mount(**request.json)
     else:
-        print("Non scannare")
         RULES_DAO.add_rule(**request.json)
     update_swagger()
     # await o.notify("HOSTS", CONFIG)
@@ -396,4 +406,4 @@ async def deregister_rule(request, name):
     return sjson("OK")
 
 
-app.run("0.0.0.0", port=PORT, debug=SERVICE_DEBUG, auto_reload=AUTO_RELOAD)
+app.run("0.0.0.0", port=PORT, access_log=False, debug=SERVICE_DEBUG, auto_reload=AUTO_RELOAD)

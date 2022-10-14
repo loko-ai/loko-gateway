@@ -1,5 +1,5 @@
 {
-  "version": "0.0.1",
+  "version": "0.0.3",
   "tasks": {
     "build": {
       "upload": {
@@ -7,7 +7,7 @@
       }
     },
     "docker-build": {
-      "company": "registry.livetech.site",
+      "company": "lokoai",
       "build-args": {
         "user": "piplivetech",
         "password": "pip2018"

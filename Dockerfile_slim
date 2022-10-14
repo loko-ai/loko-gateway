@@ -1,0 +1,12 @@
+FROM python:3.10-slim AS compile-image
+ARG user
+ARG password
+ADD requirements.lock /
+RUN pip install --user --upgrade --extra-index-url https://$user:$password@distribution.livetech.site -r /requirements.lock
+
+FROM python:3.10.6-alpine AS build-image
+COPY --from=compile-image /root/.local /libraries
+ADD . /loko-gateway
+ENV PYTHONPATH=$PYTHONPATH:/loko-gateway:/libraries/lib/python3.10/site-packages
+WORKDIR /loko-gateway/loko_gateway/services
+CMD python services.py

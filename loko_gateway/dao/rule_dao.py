@@ -29,6 +29,7 @@ class RuleDAO:
 
     async def __create_rule(self, name, ip, port):
         timeout = ClientTimeout(sock_connect=1.0, sock_read=3.0)
+        print("Here", name, ip, port)
         async with ClientSession(timeout=timeout) as session:
             url = f"http://{ip}:{port}/swagger.json"
             resp = await session.get(url)
