@@ -26,7 +26,7 @@ sio.attach(app)
 CORS(app, expose_headers=["Range"])
 app.config["API_TITLE"] = appname
 app.config["KEEP_ALIVE"] = False
-app.config["RESPONSE_TIMEOUT"] = 60 * 10
+app.config["RESPONSE_TIMEOUT"] = 60 * 1000
 app.config.REQUEST_MAX_SIZE = 10000000000
 
 app.blueprint(swagger_blueprint)
@@ -60,100 +60,6 @@ def update_swagger():
                 spec.paths[path.join("/", rule.name, to_relative(p[offs:]))] = cont
 
 
-# async def scan(ports=(8080,), max_hosts=30):
-#     global oldpaths
-#     oldscans = defaultdict(list)
-#     t = 3
-#
-#     l = "127.0.0.1"
-#
-#     while True:
-#
-#         scans = [check(l, port) for port in ports if port != PORT]
-#
-#         scans.extend([check(ip, 8080) async for ip in islice(other_hosts(), max_hosts)])
-#         resp = defaultdict(list)
-#         for x in await asyncio.gather(*scans):
-#             if x and x.get("type") != appname:
-#                 resp[x['type']].append(x)
-#
-#         if resp != oldscans:
-#             # RULES.clear()
-#             oldscans = resp
-#             for type, x in resp.items():
-#                 for i, service in enumerate(x):
-#                     base_url = "{}:{}/{}".format(service['ip'], service['port'], service['path'])
-#                     try:
-#                         info_url = 'http://' + base_url.strip('/') + '/info'
-#                         resp = await app.ctx.aiohttp_session.get(url=info_url)
-#                         name = (await resp.json())['label']
-#                     except Exception:
-#                         name = type if i == 0 else type + "_" + str(i + 1)
-#
-#                     RULES[name] = service, base_url
-#
-#             t = 3
-#         else:
-#             t += 5
-#             t = min(60, t)
-#
-#
-#         print("Next scan in %d seconds " % t)
-#         await asyncio.sleep(t)
-
-
-# async def manual_scan():
-#     for i in range(5):
-#         print("Scan", i)
-#         for host in HOSTS:
-#             print("Host", host)
-#         scans = [check(host, port, mount) for (mount, host, port) in HOSTS]
-#
-#         resp = defaultdict(list)
-#         for x in await asyncio.gather(*scans):
-#             if x and x.get("type") != appname:
-#                 resp[x['type']].append(x)
-#
-#         for type, x in resp.items():
-#
-#             for service in x:
-#                 print(type, service)
-#                 RULES[service['mount']] = service, "{}:{}/{}".format(service['ip'], service['port'], service['path'])
-#         if hasattr(swagger_blueprint, "_spec"):
-#             spec = swagger_blueprint._spec
-#             # spec.paths = {}
-#             for k, v in RULES.items():
-#                 bp = v[0]['swagger'].basePath or "/"
-#                 if bp != "/":
-#                     offs = 1
-#                 else:
-#                     offs = len(v[0]['path']) + 1
-#                 for p, cont in v[0]['swagger'].paths.items():
-#                     # print(p, )
-#                     spec.paths[path.join("/", k, to_relative(p[offs:]))] = cont
-#         await  asyncio.sleep(5)
-
-
-# @app.post("/hosts")
-# @doc.consumes(doc.JsonBody(fields=dict()), location="body", required=True)
-# async def update_hosts(request):
-#     hostsdao.save(request.json)
-#     return sjson('OK')
-#
-#
-# @app.get("/hosts")
-# async def get_hosts(request):
-#     return sjson(list(hostsdao.all().values()))
-#
-#
-# @app.delete("/hosts")
-# @doc.consumes(doc.String(name="name"), required=True)
-# async def delete_hosts(request):
-#     name = request.args.get('name')
-#     hostsdao.delete(name)
-#     return sjson('OK')
-
-
 SCAN_TASK = None
 LOOP = None
 
@@ -166,7 +72,10 @@ async def scan():
             for r in list(temp):
                 try:
                     print("Aggancio", r)
+                    # if r.get("scan"):
                     await RULES_DAO.mount(r["name"], r["host"], r["port"], r["type"])
+                    # else:
+                    #    RULES_DAO.add_rule(r["name"], r["host"], r["port"], r["type"])
                     temp.remove(r)
                 except Exception as inst:
                     print(r, inst)
@@ -316,34 +225,6 @@ async def events(sid, data):
 @sio.event
 async def info(sid, data):
     await sio.emit('info', data)
-
-
-async def set_autoscan(value):  # False
-    global SCAN_TASK
-    global LOOP
-
-    CONFIG["AUTOSCAN"] = value
-
-    if not value and SCAN_TASK:
-        SCAN_TASK.cancel()
-        SCAN_TASK = None
-    else:  # value and not SCAN_TASK:
-        SCAN_TASK = LOOP.create_task(scan(ports=list(range(8080, 8090)) + [8888]))
-
-
-async def update_hosts(hosts):
-    global SCAN_TASK
-    global RULES
-    print(RULES)
-    RULES.clear()
-
-    CONFIG["HOSTS"] = hosts
-
-    if not hosts and SCAN_TASK:
-        SCAN_TASK.cancel()
-        SCAN_TASK = None
-    else:  # value and not SCAN_TASK:
-        SCAN_TASK = LOOP.create_task(scan(ports=list(range(8080, 8090)) + [8888]))
 
 
 # # creo l'observable di riferimento al quale aggiungere le callback

@@ -18,7 +18,6 @@ SESSION_TIMEOUT = e.get("SESSION_TIMEOUT", 60 * 60)
 PORT = e.get("PORT", 8080)
 AUTOSCAN = e.get("AUTOSCAN", True)
 RULES = e.RULES or []  # ,["file-converter", "localhost", 7070],["ds4biz-textract", "localhost", 8081],["predictor", "localhost", 8081],["nlp", "localhost", 9090],["cloudstorage", "localhost", 8083]]
-print(e.RULES, type(e.RULES))
 AUTO_RELOAD = e.AUTO_RELOAD or False
 SERVICE_DEBUG = e.SERVICE_DEBUG or False
 
