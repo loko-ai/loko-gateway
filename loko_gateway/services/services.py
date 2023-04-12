@@ -25,7 +25,7 @@ sio.attach(app)
 
 CORS(app, expose_headers=["Range"])
 app.config["API_TITLE"] = appname
-app.config["KEEP_ALIVE"] = False
+app.config["KEEP_ALIVE"] = True
 app.config["RESPONSE_TIMEOUT"] = 60 * 1000
 app.config.REQUEST_MAX_SIZE = 10000000000
 
@@ -130,30 +130,41 @@ async def main(request, path):
             url = f"http://{rule.host}:{rule.port}{rule.base_path}/{'/'.join(rest)}?{temp.query}"
         else:
             url = f"http://{rule.host}:{rule.port}{rule.base_path}/{'/'.join(rest)}"
-        resp = await app.ctx.aiohttp_session.request(method=request.method, url=url, data=request.body, headers=headers,
-                                                     params=params, timeout=ASYNC_REQUEST_TIMEOUT)
-        ct = resp.headers.get('content-type')
-        kws = ['allow-origin']
-        headers = {k: v for k, v in dict(resp.headers).items() if not any([el in k.lower() for el in kws])}
+        async with await app.ctx.aiohttp_session.request(method=request.method, url=url, data=request.body,
+                                                         headers=headers,
+                                                         params=params, timeout=ASYNC_REQUEST_TIMEOUT) as resp:
+            ct = resp.headers.get('content-type')
+            kws = ['allow-origin']
+            headers = {k: v for k, v in dict(resp.headers).items() if not any([el in k.lower() for el in kws])}
 
-        if resp.headers.get('Transfer-Encoding') == 'chunked':
-            rr = await request.respond(headers=headers)
+            """if resp.headers.get('Transfer-Encoding') == 'chunked':
+                rr = await request.respond(headers=headers)
+    
+                buffer = b""
+                async for data, end_of_http_chunk in resp.content.iter_chunks():
+                    buffer += data
+                    if end_of_http_chunk:
+                        print(await rr.send(buffer))
+                        print('line::', end_of_http_chunk, buffer)
+                        buffer = b""
+                resp.close()"""
 
-            buffer = b""
-            async for data, end_of_http_chunk in resp.content.iter_chunks():
-                buffer += data
-                if end_of_http_chunk:
-                    await rr.send(buffer)
-                    print('line::', end_of_http_chunk, buffer)
-                    buffer = b""
-            resp.close()
+            # if ct == 'application/json' and not "Range" in headers:
+            #     return sjson(await resp.json(), headers = headers)
+            # if ct == 'plain/text':
+            #     return sjson(await resp.text(), headers = headers)
+            """else:
+                return raw(await resp.content.read(), content_type=ct, headers=headers, status=resp.status)"""
 
-        # if ct == 'application/json' and not "Range" in headers:
-        #     return sjson(await resp.json(), headers = headers)
-        # if ct == 'plain/text':
-        #     return sjson(await resp.text(), headers = headers)
-        else:
-            return raw(await resp.content.read(), content_type=ct, headers=headers, status=resp.status)
+            if ct == 'application/jsonl':
+
+                rr = await request.respond(headers=headers)
+                async for line in resp.content:
+                    print(f"LINE {line}")
+                    await rr.send(line)
+            else:
+                return raw(await resp.content.read(), content_type=ct, headers=headers, status=resp.status)
+
     else:
         raise SanicException(status_code=404)
 
