@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import traceback
 from os import path
 from urllib.parse import urlparse
@@ -91,7 +92,7 @@ async def m(app, loop):
     global LOOP
     global SCAN_TASK
     total_timeout = ClientTimeout(total=SESSION_TIMEOUT)
-    app.ctx.aiohttp_session = ClientSession(loop=loop, timeout=total_timeout)
+    app.ctx.aiohttp_session = ClientSession(loop=loop, timeout=total_timeout, auto_decompress=False)
     LOOP = loop
     loop.create_task(scan())
 
@@ -125,17 +126,20 @@ async def main(request, path):
     params = {k: request.args.get(k) for k in request.args}
 
     rule = RULES_DAO.get(name)
+    print("RULLLLEEEE", rule)
     if rule:
         if temp.query:
             url = f"http://{rule.host}:{rule.port}{rule.base_path}/{'/'.join(rest)}?{temp.query}"
         else:
             url = f"http://{rule.host}:{rule.port}{rule.base_path}/{'/'.join(rest)}"
+            print("URLLLLL", url)
         async with await app.ctx.aiohttp_session.request(method=request.method, url=url, data=request.body,
                                                          headers=headers,
                                                          params=params, timeout=ASYNC_REQUEST_TIMEOUT) as resp:
             ct = resp.headers.get('content-type')
             kws = ['allow-origin']
             headers = {k: v for k, v in dict(resp.headers).items() if not any([el in k.lower() for el in kws])}
+            print(path, resp)
 
             """if resp.headers.get('Transfer-Encoding') == 'chunked':
                 rr = await request.respond(headers=headers)
@@ -155,15 +159,21 @@ async def main(request, path):
             #     return sjson(await resp.text(), headers = headers)
             """else:
                 return raw(await resp.content.read(), content_type=ct, headers=headers, status=resp.status)"""
+            print("INFFFFFOOOO", ct)
 
             if ct == 'application/jsonl':
 
-                rr = await request.respond(headers=headers)
+                rr = await request.respond(content_type=ct, status=resp.status, headers=headers)
                 async for line in resp.content:
-                    print(f"LINE {line}")
                     await rr.send(line)
+                await rr.eof()
             else:
-                return raw(await resp.content.read(), content_type=ct, headers=headers, status=resp.status)
+                rr = await request.respond(content_type=ct, status=resp.status, headers=headers)
+                async for line in resp.content.iter_any():
+                    await rr.send(line)
+                await rr.eof()
+            # else:
+            #    return raw(await resp.content.read(), content_type=ct, headers=headers, status=resp.status)
 
     else:
         raise SanicException(status_code=404)
@@ -186,6 +196,7 @@ async def send(request) -> str:
 
 @app.exception(Exception)
 async def manage_exception(request, exception):
+    # logging.exception(exception)
     if isinstance(exception, NotFound):
         return sjson(str(exception), status=404)
     # print(traceback.format_exc())
@@ -262,7 +273,6 @@ async def get_config(request):
 @doc.consumes(doc.JsonBody(), location="body", required=True)
 async def set_config(request):
     body = request.json
-    print(body)
     CONFIG.update(request.json)
     for key in body.keys():
         # lancia una notifica per ogni chiave cambiata
